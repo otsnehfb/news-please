@@ -91,44 +91,6 @@ class CommonCrawlExtractor:
         with open(self.__log_pathname_fully_extracted_warcs, 'a') as log_file:
             log_file.write(warc_url + '\n')
 
-    def __filter_record(self, warc_record, article=None):
-        """
-        Returns true if a record passes all tests: hosts, publishing date
-        :param warc_record:
-        :return: A tuple of (True or False) and an article (might be None)
-        """
-        # filter by host
-        if self.__filter_valid_hosts:
-            url = warc_record.rec_headers.get_header('WARC-Target-URI')
-
-            # very simple check, check if one of the required host names is contained in the url of the WARC transaction
-            # better would be to extract the host name from the WARC transaction Target URI and then check for equality
-            # because currently something like g.co?forward_url=facebook.com would yield a positive filter test for
-            # facebook.com even though the actual host is g.co
-            for valid_host in self.__filter_valid_hosts:
-                if valid_host in url:
-                    break
-            else:
-                return False, article
-
-        # filter by date
-        if self.__filter_start_date or self.__filter_end_date:
-            if not article:
-                article = NewsPlease.from_warc(warc_record)
-
-            publishing_date = self.__get_publishing_date(warc_record, article)
-            if not publishing_date:
-                if self.__filter_strict_date:
-                    return False, article
-            else:  # here we for sure have a date
-                # is article published too early?
-                if self.__filter_start_date and publishing_date < self.__filter_start_date:
-                    return False, article
-                if self.__filter_end_date and publishing_date > self.__filter_end_date:
-                    return False, article
-
-        return True, article
-
     def __get_publishing_date(self, warc_record, article):
         """
         Extracts the publishing date from the record
@@ -224,54 +186,21 @@ class CommonCrawlExtractor:
         counter_article_discarded = 0
         start_time = time.time()
 
+        def read_record(record):
+            record.read_stream = record.raw_stream.read()
+            return record
+
+        def delete_raw_stream(record):
+            del record.raw_stream
+            return record
+
         with open(path_name, 'rb') as stream:
-            for record in ArchiveIterator(stream):
-                # try:
-                if record.rec_type == 'response':
-                    counter_article_total += 1
+            warc_records = list(map(read_record, ArchiveIterator(stream)))
+            self.__logger.info('Extracting {} records'.format(len(warc_records)))
 
-                    # if the article passes filter tests, we notify the user
-                    filter_pass, article = self.__filter_record(record)
-                    if filter_pass:
-                        counter_article_passed += 1
+        warc_records = list(map(delete_raw_stream, warc_records))
 
-                        if not article:
-                            article = NewsPlease.from_warc(record)
-
-                        self.__logger.info('article pass (%s; %s; %s)', article.source_domain, article.date_publish,
-                                           article.title)
-                        self.__callback_on_article_extracted(article)
-                    else:
-                        counter_article_discarded += 1
-
-                        if article:
-                            self.__logger.info('article discard (%s; %s; %s)', article.source_domain,
-                                               article.date_publish,
-                                               article.title)
-                        else:
-                            self.__logger.info('article discard (%s)',
-                                               record.rec_headers.get_header('WARC-Target-URI'))
-
-                    if counter_article_total % 10 == 0:
-                        elapsed_secs = time.time() - start_time
-                        secs_per_article = elapsed_secs / counter_article_total
-                        self.__logger.info('statistics')
-                        self.__logger.info('pass = %i, discard = %i, total = %i', counter_article_passed,
-                                           counter_article_discarded, counter_article_total)
-                        self.__logger.info('extraction from current WARC file started %s; %f s/article',
-                                           human(start_time), secs_per_article)
-                        # except:
-                        #    if self.__continue_after_error:
-                        #        self.__logger.error('Unexpected error: %s', sys.exc_info()[0])
-                        #        pass
-                        #    else:
-                        #        raise
-
-        # cleanup
-        if self.__delete_warc_after_extraction:
-            os.remove(path_name)
-
-        self.__register_fully_extracted_warc_file(self.__warc_download_url)
+        self.__callback_on_article_extracted(warc_records)
 
     def __run(self):
         """
@@ -284,6 +213,8 @@ class CommonCrawlExtractor:
 
         local_path_name = self.__download(self.__warc_download_url)
         self.__process_warc_gz_file(local_path_name)
+        import sys
+        sys.exit()
 
     def extract_from_commoncrawl(self, warc_download_url, callback_on_article_extracted, valid_hosts=None,
                                  start_date=None, end_date=None,

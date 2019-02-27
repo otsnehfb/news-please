@@ -3,6 +3,8 @@ import os
 import sys
 import urllib
 
+from bs4 import UnicodeDammit
+import ftfy
 from six.moves import urllib
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
@@ -26,7 +28,20 @@ class NewsPlease:
         extractor.
         :return:
         """
-        html = str(warc_record.raw_stream.read())
+        try:
+            raw_html = warc_record.read_stream
+            ud_html = UnicodeDammit(raw_html).unicode_markup
+            ftfy_html = ftfy.fix_text(ud_html)
+            html = ftfy_html.encode('utf-8')  # this will also uncurl quotes
+        except:
+            return None
+        #try:
+        #    html = raw_html.decode('utf-8').encode('utf-8')
+        #except UnicodeDecodeError:
+        #    try:
+        #        html = raw_html.decode('latin1').encode('utf-8')
+        #    except UnicodeDecodeError:
+        #        html = str(raw_html)
         url = warc_record.rec_headers.get_header('WARC-Target-URI')
         download_date = warc_record.rec_headers.get_header('WARC-Date')
         article = NewsPlease.from_html(html, url=url, download_date=download_date)

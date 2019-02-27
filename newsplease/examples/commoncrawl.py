@@ -19,10 +19,16 @@ git clone https://github.com/fhamborg/news-please.git
 cd news-please
 python3 -m newsplease.examples.commoncrawl
 """
+import argparse
+import gzip
+import json
 import hashlib
 import json
 import logging
+import multiprocessing
 import os
+import time
+import urllib.parse
 
 from ..crawler import commoncrawl_crawler as commoncrawl_crawler
 
@@ -31,11 +37,18 @@ __copyright__ = "Copyright 2017"
 __credits__ = ["Sebastian Nagel"]
 
 
+parser = argparse.ArgumentParser(description='')
+parser.add_argument('--file', required=True)
+args = parser.parse_args()
+warc_file = urllib.parse.unquote(os.path.basename(args.file))
+
+
 ############ YOUR CONFIG ############
 # download dir for warc files
-my_local_download_dir_warc = './cc_download_warc/'
+my_local_download_dir_warc = '/checkpoint/myleott/CC-NEWS/'
 # download dir for articles
-my_local_download_dir_article = './cc_download_articles/'
+my_local_download_dir_article = '/checkpoint/myleott/CC-NEWS-extracted/' + os.path.basename(args.file) + '.gz'
+my_local_download_dir_log = '/checkpoint/myleott/CC-NEWS-extracted/' + os.path.basename(args.file) + '.log'
 # hosts (if None or empty list, any host is OK)
 my_filter_valid_hosts = []  # example: ['elrancaguino.cl']
 # start date (if None, any date is OK as start date), as datetime
@@ -53,25 +66,17 @@ my_continue_after_error = True
 my_show_download_progress = True
 # log_level
 my_log_level = logging.INFO
-# json export style
-my_json_export_style = 1  # 0 (minimize), 1 (pretty)
 # number of extraction processes
 my_number_of_extraction_processes = 1
 # if True, the WARC file will be deleted after all articles have been extracted from it
-my_delete_warc_after_extraction = True
+my_delete_warc_after_extraction = False
 # if True, will continue extraction from the latest fully downloaded but not fully extracted WARC files and then
 # crawling new WARC files. This assumes that the filter criteria have not been changed since the previous run!
 my_continue_process = True
 ############ END YOUR CONFIG #########
 
+from newsplease import NewsPlease
 
-def __setup__():
-    """
-    Setup
-    :return:
-    """
-    if not os.path.exists(my_local_download_dir_article):
-        os.makedirs(my_local_download_dir_article)
 
 
 def __get_pretty_filepath(path, article):
@@ -89,24 +94,71 @@ def __get_pretty_filepath(path, article):
     return final_path + short_filename + '.json'
 
 
-def on_valid_article_extracted(article):
+def process_warc_record(record):
+    try:
+        if record.rec_type == 'response':
+            article = NewsPlease.from_warc(record)
+            if article is not None:
+                return json.dumps(article.__dict__, default=str, separators=(',', ':'))
+    except Exception as e:
+        log = logging.getLogger()
+        log.warning('skipping record due to Exception: ' + str(e))
+    return None
+
+
+class TimeMeter(object):
+    """Computes the average occurrence of some event per second"""
+    def __init__(self, init=0):
+        self.reset(init)
+
+    def reset(self, init=0):
+        self.init = init
+        self.start = time.time()
+        self.n = 0
+
+    def update(self, val=1):
+        self.n += val
+
+    @property
+    def avg(self):
+        return self.n / self.elapsed_time
+
+    @property
+    def elapsed_time(self):
+        return self.init + (time.time() - self.start)
+
+
+def on_valid_article_extracted(warc_records):
     """
     This function will be invoked for each article that was extracted successfully from the archived data and that
     satisfies the filter criteria.
-    :param article:
+    :param articles:
     :return:
     """
-    # do whatever you need to do with the article (e.g., save it to disk, store it in ElasticSearch, etc.)
-    with open(__get_pretty_filepath(my_local_download_dir_article, article), 'w') as outfile:
-        if my_json_export_style == 0:
-            json.dump(article.__dict__, outfile, default=str, separators=(',', ':'))
-        elif my_json_export_style == 1:
-            json.dump(article.__dict__, outfile, default=str, indent=4, sort_keys=True)
-        # ...
+    num_records = len(warc_records)
+    log = logging.getLogger()
+    start_time = time.time()
+    with multiprocessing.Pool() as pool:
+        json_articles = pool.imap_unordered(process_warc_record, warc_records, 25)
+
+        with gzip.open(my_local_download_dir_article, 'wt', encoding='utf-8') as outfile:
+            timer = TimeMeter()
+            for i, article in enumerate(json_articles):
+                if article is not None:
+                    print(article, file=outfile)
+                timer.update(1)
+                if i % 100 == 0:
+                    log.info('extraction timer: {}/{} at {} articles per second'.format(
+                        i+1, num_records, round(timer.avg, 1),
+                    ))
+
+    end_time = time.time()
+    with open(my_local_download_dir_article + '.done', 'w') as h:
+        print('done in {} seconds'.format(round(end_time - start_time, 1)), file=h)
+    print('done in {} seconds'.format(round(end_time - start_time, 1)))
 
 
 if __name__ == '__main__':
-    __setup__()
     commoncrawl_crawler.crawl_from_commoncrawl(on_valid_article_extracted,
                                                valid_hosts=my_filter_valid_hosts,
                                                start_date=my_filter_start_date,
@@ -119,4 +171,5 @@ if __name__ == '__main__':
                                                number_of_extraction_processes=my_number_of_extraction_processes,
                                                log_level=my_log_level,
                                                delete_warc_after_extraction=True,
-                                               continue_process=True)
+                                               continue_process=True,
+                                               warc_file=warc_file)
