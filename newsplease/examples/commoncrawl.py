@@ -28,7 +28,6 @@ import logging
 import multiprocessing
 import os
 import time
-import urllib.parse
 
 from ..crawler import commoncrawl_crawler as commoncrawl_crawler
 
@@ -38,17 +37,18 @@ __credits__ = ["Sebastian Nagel"]
 
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--file', required=True)
+parser.add_argument('--warc-paths-file', required=True)
+parser.add_argument('--outfile', required=True) # .gz file with json data of all articles
+parser.add_argument('--download-dir', default=None, required=False) # download dir for original .gz file
 args = parser.parse_args()
-warc_file = urllib.parse.unquote(os.path.basename(args.file))
 
 
 ############ YOUR CONFIG ############
 # download dir for warc files
-my_local_download_dir_warc = '/checkpoint/myleott/CC-NEWS/'
+my_local_download_dir_warc = args.download_dir
 # download dir for articles
-my_local_download_dir_article = '/checkpoint/myleott/CC-NEWS-extracted/' + os.path.basename(args.file) + '.gz'
-my_local_download_dir_log = '/checkpoint/myleott/CC-NEWS-extracted/' + os.path.basename(args.file) + '.log'
+my_local_download_dir_article = args.outfile
+my_local_download_dir_log = args.outfile + '.log'
 # hosts (if None or empty list, any host is OK)
 my_filter_valid_hosts = []  # example: ['elrancaguino.cl']
 # start date (if None, any date is OK as start date), as datetime
@@ -74,6 +74,9 @@ my_delete_warc_after_extraction = False
 # crawling new WARC files. This assumes that the filter criteria have not been changed since the previous run!
 my_continue_process = True
 ############ END YOUR CONFIG #########
+
+logger = logging.getLogger('chardet.charsetprober')
+logger.setLevel(my_log_level)
 
 from newsplease import NewsPlease
 
@@ -172,4 +175,4 @@ if __name__ == '__main__':
                                                log_level=my_log_level,
                                                delete_warc_after_extraction=True,
                                                continue_process=True,
-                                               warc_file=warc_file)
+                                               warc_paths_file=args.warc_paths_file)
