@@ -150,7 +150,7 @@ def crawl_from_commoncrawl(callback_on_article_extracted, valid_hosts=None, star
                            strict_date=True, reuse_previously_downloaded_files=True, local_download_dir_warc=None,
                            continue_after_error=True, show_download_progress=False,
                            number_of_extraction_processes=4, log_level=logging.ERROR,
-                           delete_warc_after_extraction=True, continue_process=True, warc_paths_file=None):
+                           delete_warc_after_extraction=True, continue_process=True, warc_file=None):
     """
     Crawl and extract articles form the news crawl provided by commoncrawl.org. For each article that was extracted
     successfully the callback function callback_on_article_extracted is invoked where the first parameter is the
@@ -175,7 +175,7 @@ def crawl_from_commoncrawl(callback_on_article_extracted, valid_hosts=None, star
     # multiprocessing (iterate the list of crawl_names, and for each: download and process it)
     __logger.info('creating extraction process pool with %i processes', number_of_extraction_processes)
     warc_download_urls = []
-    if warc_paths_file is None:
+    if warc_file is None:
         cc_news_crawl_names = __get_remote_index()
         __logger.info('found %i files at commoncrawl.org', len(cc_news_crawl_names))
         fully_extracted_warc_urls = __get_list_of_fully_extracted_warc_urls()
@@ -194,9 +194,7 @@ def crawl_from_commoncrawl(callback_on_article_extracted, valid_hosts=None, star
                 # if not continue process, then always add
                 warc_download_urls.append(warc_download_url)
     else:
-        with open(warc_paths_file, 'r') as f:
-            warc_paths = f.readlines()
-        warc_download_urls = [__get_download_url(warc_path.strip()) for warc_path in warc_paths]
+        warc_download_urls = [__get_download_url(warc_file)]
 
     # run the crawler in the current, single process if number of extraction processes is set to 1
     if number_of_extraction_processes > 1:

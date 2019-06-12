@@ -37,7 +37,7 @@ __credits__ = ["Sebastian Nagel"]
 
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--warc-paths-file', required=True)
+parser.add_argument('--warc-file', required=True)
 parser.add_argument('--outfile', required=True) # .gz file with json data of all articles
 parser.add_argument('--download-dir', default=None, required=False) # download dir for original .gz file
 args = parser.parse_args()
@@ -175,4 +175,4 @@ if __name__ == '__main__':
                                                log_level=my_log_level,
                                                delete_warc_after_extraction=True,
                                                continue_process=True,
-                                               warc_paths_file=args.warc_paths_file)
+                                               warc_file=args.warc_file)
